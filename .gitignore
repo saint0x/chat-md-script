@@ -1,0 +1,18 @@
+.env
+*.log
+.DS_Store
+chat.md
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.bin
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
