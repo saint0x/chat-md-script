@@ -2,6 +2,7 @@
 *.log
 .DS_Store
 chat.md
+leet.py
 
 # Binaries for programs and plugins
 *.exe

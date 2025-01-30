@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/fsnotify/fsnotify"
 	"github.com/joho/godotenv"
 )
@@ -37,15 +35,36 @@ type APIResponse struct {
 	} `json:"choices"`
 }
 
-var (
-	humanColor     = color.New(color.FgCyan)
-	assistantColor = color.New(color.FgGreen)
-	debugColor     = color.New(color.FgYellow)
-	lastContent    string
-)
+var lastContent string
 
 func debugLog(format string, args ...interface{}) {
-	debugColor.Printf("[DEBUG] "+format+"\n", args...)
+	// Map of prefixes to use based on common keywords in the format string
+	prefixes := map[string]string{
+		"error":      "❌ ",
+		"skip":       "⏭️ ",
+		"parse":      "🔍 ",
+		"add":        "➕ ",
+		"call":       "🌐 ",
+		"response":   "✉️ ",
+		"detect":     "👀 ",
+		"write":      "✍️ ",
+		"init":       "🚀 ",
+		"load":       "📂 ",
+		"trim":       "✂️ ",
+		"unchanged":  "🔄 ",
+		"monitoring": "👁️ ",
+	}
+
+	// Find the most appropriate prefix
+	prefix := "💬 " // default prefix
+	for key, emoji := range prefixes {
+		if strings.Contains(strings.ToLower(format), key) {
+			prefix = emoji
+			break
+		}
+	}
+
+	fmt.Printf(prefix+format+"\n", args...)
 }
 
 func main() {
@@ -69,7 +88,7 @@ func main() {
 	// Initialize last content
 	if content, err := os.ReadFile(chatFile); err == nil {
 		lastContent = string(content)
-		debugLog("Initial content loaded, length: %d", len(lastContent))
+		debugLog("load: initial content loaded")
 	}
 
 	// Start watching chat.md
@@ -84,7 +103,7 @@ func main() {
 		select {
 		case event := <-watcher.Events:
 			if event.Op&fsnotify.Write == fsnotify.Write {
-				debugLog("File write detected")
+				debugLog("detect: file change")
 				processNewMessages(apiKey)
 			}
 		case err := <-watcher.Errors:
@@ -94,132 +113,131 @@ func main() {
 	}
 }
 
+func parseMessages(content string) []Message {
+	var messages []Message
+
+	// Split content by message separator
+	parts := strings.Split(content, "\n***\n")
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Even parts are user messages, odd parts are AI responses
+		if i%2 == 0 {
+			messages = append(messages, Message{
+				Role:    "user",
+				Content: part,
+			})
+		} else {
+			messages = append(messages, Message{
+				Role:    "assistant",
+				Content: part,
+			})
+		}
+	}
+
+	// Keep only the last 6 messages for context
+	if len(messages) > 6 {
+		messages = messages[len(messages)-6:]
+		debugLog("trim: keeping last 6 messages for context")
+	}
+
+	return messages
+}
+
 func processNewMessages(apiKey string) {
 	content, err := os.ReadFile(chatFile)
 	if err != nil {
-		log.Println("Error reading file:", err)
+		debugLog("error: failed to read chat file: %v", err)
 		return
 	}
 
 	currentContent := string(content)
-	debugLog("Current content length: %d, Last content length: %d", len(currentContent), len(lastContent))
-
 	if currentContent == lastContent {
-		debugLog("Content unchanged, skipping")
+		debugLog("unchanged: no new content")
 		return
 	}
 
-	// Get the last two characters to check for double newline
-	lastTwoChars := ""
-	if len(currentContent) >= 2 {
-		lastTwoChars = currentContent[len(currentContent)-2:]
-	}
-
-	// Only process if we detect a double newline
-	if lastTwoChars != "\n\n" {
-		debugLog("No double newline detected at the end")
+	// Check for double newline at the end
+	if !strings.HasSuffix(currentContent, "\n\n") {
+		debugLog("skip: waiting for double enter")
 		lastContent = currentContent
 		return
 	}
 
-	// Check if the last non-empty line is from the assistant (orange color)
-	scanner := bufio.NewScanner(strings.NewReader(currentContent))
-	var lastNonEmptyLine string
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lastNonEmptyLine = line
+	// Get the content up to the last double newline (where cursor is)
+	lastIndex := strings.LastIndex(currentContent, "\n\n")
+	if lastIndex == -1 {
+		debugLog("skip: invalid content format")
+		lastContent = currentContent
+		return
+	}
+
+	// Find the last separator before the cursor position
+	contentBeforeCursor := currentContent[:lastIndex]
+	lastSepIndex := strings.LastIndex(contentBeforeCursor, "\n***\n")
+
+	var messageContent string
+	if lastSepIndex == -1 {
+		// No previous messages, use everything up to cursor
+		messageContent = strings.TrimSpace(contentBeforeCursor)
+	} else {
+		// Get everything between last separator and cursor
+		messageContent = strings.TrimSpace(contentBeforeCursor[lastSepIndex+5:])
+	}
+
+	if messageContent == "" {
+		debugLog("skip: empty message")
+		lastContent = currentContent
+		return
+	}
+
+	// Create messages array with the new message
+	var messages []Message
+	if lastSepIndex != -1 {
+		// Get previous messages for context
+		prevContent := currentContent[:lastSepIndex]
+		prevMessages := parseMessages(prevContent)
+		// Keep only the last 5 messages to make room for the new one
+		if len(prevMessages) > 5 {
+			prevMessages = prevMessages[len(prevMessages)-5:]
+			debugLog("trim: keeping last 5 previous messages for context")
 		}
+		messages = append(messages, prevMessages...)
 	}
 
-	if strings.Contains(lastNonEmptyLine, "color: orange") {
-		debugLog("Last message is from Assistant, skipping")
-		lastContent = currentContent
-		return
-	}
+	// Add the new message
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: messageContent,
+	})
 
-	// Parse all messages
-	messages := parseMessages(currentContent)
-	debugLog("Parsed %d messages", len(messages))
-
-	if len(messages) == 0 {
-		debugLog("No messages parsed")
-		return
-	}
-
-	// Get the last message
-	lastMessage := messages[len(messages)-1]
-	if lastMessage.Role != "user" {
-		debugLog("Last message is not from user, skipping")
-		lastContent = currentContent
-		return
-	}
-
-	// Call DeepSeek API
-	debugLog("Calling DeepSeek API")
-	response, err := callDeepSeekAPI(apiKey, messages)
-	if err != nil {
-		log.Println("Error calling DeepSeek API:", err)
-		return
-	}
-
-	// Append response to file at the current cursor position
-	debugLog("Got response, appending to file")
-	if err := appendToChat(response, true); err != nil {
-		log.Println("Error appending response:", err)
-		return
-	}
-
-	// Update last content after processing
-	content, _ = os.ReadFile(chatFile)
-	lastContent = string(content)
-	debugLog("Updated last content, length: %d", len(lastContent))
+	debugLog("parse: sending message: %q", messageContent)
+	handleNewMessage(messages, apiKey)
 }
 
-func parseMessages(content string) []Message {
-	var messages []Message
-	debugLog("Parsing content: %q", content)
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	var messageLines []string
-
-	// First, collect all non-empty lines and strip color tags
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-			// Strip color tags if present
-			if strings.Contains(trimmed, "<span") {
-				// Extract message from between span tags
-				start := strings.Index(trimmed, ">") + 1
-				end := strings.LastIndex(trimmed, "<")
-				if start > 0 && end > start {
-					trimmed = trimmed[start:end]
-				}
-			}
-			messageLines = append(messageLines, trimmed)
-		}
+func handleNewMessage(messages []Message, apiKey string) {
+	// Call API with context
+	debugLog("call: sending request with %d messages", len(messages))
+	response, err := callDeepSeekAPI(apiKey, messages)
+	if err != nil {
+		debugLog("error: API call failed: %v", err)
+		return
 	}
 
-	// Process messages alternating between user and assistant
-	isUserMessage := true // Start with user message
-	for _, line := range messageLines {
-		if isUserMessage {
-			messages = append(messages, Message{
-				Role:    "user",
-				Content: line,
-			})
-			debugLog("Added user message: %q", line)
-		} else {
-			messages = append(messages, Message{
-				Role:    "assistant",
-				Content: line,
-			})
-			debugLog("Added assistant message: %q", line)
-		}
-		isUserMessage = !isUserMessage
+	// Append response
+	debugLog("write: adding assistant response")
+	if err := appendToChat(response, true); err != nil {
+		debugLog("error: failed to write response: %v", err)
+		return
 	}
 
-	return messages
+	// Update last content
+	if content, err := os.ReadFile(chatFile); err == nil {
+		lastContent = string(content)
+	}
 }
 
 func callDeepSeekAPI(apiKey string, messages []Message) (string, error) {
@@ -278,12 +296,12 @@ func appendToChat(message string, isAssistant bool) error {
 		return err
 	}
 
-	// Format message with markdown color
+	// Format message with separator if it's an AI response
 	var formattedMessage string
 	if isAssistant {
-		formattedMessage = fmt.Sprintf("\n<span style=\"color: orange\">%s</span>\n", message)
+		formattedMessage = fmt.Sprintf("\n%s\n***\n", message)
 	} else {
-		formattedMessage = fmt.Sprintf("\n<span style=\"color: blue\">%s</span>\n", message)
+		formattedMessage = fmt.Sprintf("\n%s\n", message)
 	}
 
 	// Write the message
