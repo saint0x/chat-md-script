@@ -1,28 +1,52 @@
-# AI Chat in Markdown
+# DeepSeek Markdown Chat Monitor
 
-A real-time chat interface that allows you to have conversations with DeepSeek API directly in a markdown file. The system monitors your input and automatically sends messages when you press Enter twice.
+A Rust-based file monitoring system that watches a markdown file for changes and automatically sends new messages to the DeepSeek API, creating an interactive chat experience.
+
+## Features
+
+- Real-time markdown file monitoring
+- Automatic message detection and parsing
+- Efficient context management (keeps last 6 messages)
+- Colored console output with emoji indicators
+- Robust error handling
+- Memory-safe implementation
+- Asynchronous I/O operations
 
 ## Setup
 
-1. Install the required dependencies:
-   ```bash
-   go mod download
-   ```
-
-2. Create a `.env` file in the root directory and add your DeepSeek API key:
+1. Install Rust and Cargo
+2. Create a `.env` file with your DeepSeek API key:
    ```
    DEEPSEEK_API_KEY=your_api_key_here
+   ```
+3. Build the project:
+   ```bash
+   cargo build
    ```
 
 ## Usage
 
-1. Run the monitoring script:
+1. Run the monitor:
    ```bash
-   go run script.go
+   cargo run
    ```
+2. Edit `chat.md` to add your messages
+3. Press Enter twice to send a message
+4. The AI response will be automatically appended to the file
 
-2. Open `chat.md` in your favorite text editor
-3. Type your message
-4. Press Enter twice to send (the script will detect the double-enter and send your message)
-5. The AI's response will automatically appear in the file where your cursor is
-6. Continue the conversation by typing your next message and pressing Enter twice
+## Message Format
+
+- Messages are separated by `\n***\n`
+- User messages are detected automatically
+- AI responses are appended with the separator
+- Double newline triggers message sending
+
+## Development
+
+Built with:
+- `tokio` for async runtime
+- `notify` for file system monitoring
+- `reqwest` for API calls
+- `serde` for JSON handling
+- `anyhow` for error handling
+- `colored` for terminal output

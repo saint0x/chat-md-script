@@ -1,0 +1,14 @@
+[package]
+name = "deepseek-md-script"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+notify = "6.1.1"  # For file system monitoring
+tokio = { version = "1.35.1", features = ["full"] }  # Async runtime
+reqwest = { version = "0.11.23", features = ["json"] }  # HTTP client
+serde = { version = "1.0.195", features = ["derive"] }  # Serialization
+serde_json = "1.0.111"  # JSON handling
+dotenv = "0.15.0"  # Environment variables
+anyhow = "1.0.79"  # Error handling
+colored = "2.1.0"  # Terminal colors for logging

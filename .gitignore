@@ -17,3 +17,7 @@ leet.py
 
 # Go workspace file
 go.work
+
+# Added by cargo
+
+/target
